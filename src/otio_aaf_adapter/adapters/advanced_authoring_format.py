@@ -564,6 +564,10 @@ def _transcribe(item, parents, edit_rate, indent=0):
         _transcribe_log(f"Creating Timeline for {_encoded_name(item)}", indent)
         result = otio.schema.Timeline()
 
+        # aw changes
+        primary_timecode = None
+        fallback_timecode = None
+
         for slot in item.slots:
             track = _transcribe(slot, parents + [item], edit_rate, indent + 2)
             _add_child(result.tracks, track, slot)
@@ -572,8 +576,17 @@ def _transcribe(item, parents, edit_rate, indent=0):
             # this track and use it for the Timeline's global_start_time
             start_time = _find_timecode_track_start(track)
             if start_time:
-                #result.global_start_time = start_time
-                result.global_start_time, metadata["IsDropFrame"] = start_time
+                timecode_type, rational_time, drop = start_time
+                if timecode_type == "fallback":
+                    fallback_timecode = (rational_time, drop)
+                elif timecode_type == "primary":
+                    primary_timecode = (rational_time, drop)
+        
+        # Use primary timecode if found, otherwise fallback
+        if primary_timecode:
+            result.global_start_time, metadata["IsDropFrame"] = primary_timecode
+        elif fallback_timecode:
+            result.global_start_time, metadata["IsDropFrame"] = fallback_timecode
 
     elif isinstance(item, aaf2.components.SourceClip):
         clipUsage = None
@@ -1036,27 +1049,65 @@ def _find_timecode_track_start(track):
         #raise AAFAdapterError("Timecode missing 'PhysicalTrackNumber'")
         pass
 
-    if physical_track_number != 1:
-        return
+    # if physical_track_number != 1:
+    #     return
+    
+    # try:
+    #     edit_rate = fractions.Fraction(aaf_metadata["EditRate"])
+    #     start = aaf_metadata["Segment"]["Start"]
+    #     drop = aaf_metadata["Segment"]["Drop"]
+    # except KeyError as e:
+    #     raise AAFAdapterError(
+    #         f"Timecode missing '{e}'"
+    #     )
 
-    try:
-        edit_rate = fractions.Fraction(aaf_metadata["EditRate"])
-        start = aaf_metadata["Segment"]["Start"]
-        drop = aaf_metadata["Segment"]["Drop"]
-    except KeyError as e:
-        raise AAFAdapterError(
-            f"Timecode missing '{e}'"
-        )
+    # if edit_rate.denominator == 1:
+    #     rate = edit_rate.numerator
+    # else:
+    #     rate = float(edit_rate)
 
-    if edit_rate.denominator == 1:
-        rate = edit_rate.numerator
-    else:
-        rate = float(edit_rate)
+    # return otio.opentime.RationalTime(
+    #     value=int(start),
+    #     rate=rate,
+    # ), drop    
+    
+    # aw edits - allow for "fallback" timecodes where there is no physcial track number
+    # calling function needs to handle the "fallback" case and prefer the timecode with PhysicalTrackNumber == 1
+    if physical_track_number == 1:
+        try:
+            edit_rate = fractions.Fraction(aaf_metadata["EditRate"])
+            start = aaf_metadata["Segment"]["Start"]
+            drop = aaf_metadata["Segment"]["Drop"]
+        except KeyError as e:
+            raise AAFAdapterError(
+                f"Timecode missing '{e}'"
+            )
 
-    return otio.opentime.RationalTime(
-        value=int(start),
-        rate=rate,
-    ), drop
+        if edit_rate.denominator == 1:
+            rate = edit_rate.numerator
+        else:
+            rate = float(edit_rate)
+
+        return ("primary", otio.opentime.RationalTime(value=int(start), rate=rate,), drop)
+    elif physical_track_number is None:
+        try:
+            edit_rate = fractions.Fraction(aaf_metadata["EditRate"])
+            start = aaf_metadata["Segment"]["Start"]
+            drop = aaf_metadata["Segment"]["Drop"]
+            
+            if edit_rate.denominator == 1:
+                rate = edit_rate.numerator
+            else:
+                rate = float(edit_rate)
+            
+            # Return with a special flag to indicate this is fallback timecode
+            return ("fallback", otio.opentime.RationalTime(value=int(start), rate=rate), drop)
+        except KeyError:
+            pass
+
+    return None
+
+    
 
 
 # def _find_mastermob_for_sourceclip(aaf_sourceclip):
