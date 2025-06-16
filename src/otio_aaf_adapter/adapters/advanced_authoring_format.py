@@ -660,24 +660,28 @@ def _transcribe(item, parents, edit_rate, indent=0):
                     key = str(prop.name)
                     value = prop.value
                     mastermob_metadata[key] = _transcribe_property(value)
-
-            target_path = (mastermob_metadata.get("UserComments", {})
-                                             .get("UNC Path"))
+            
+            target_paths = []
+            #target_path = (mastermob_metadata.get("UserComments", {})
+            #                                 .get("UNC Path"))
 
             # If targat_path is not present in the MasterMob metadata, go through all
             # to mobs to find one with a Locator object
-            if not target_path:
-                for mob in mobs:
-                    if hasattr(mob, 'descriptor') \
-                            and hasattr(mob.descriptor, 'locator') \
-                            and len(mob.descriptor.locator) > 0:
-                        locator = mob.descriptor.locator[0]
-                        target_path = locator["URLString"].value
-                        break
+            #if not target_path:
+            for mob in mobs:
+                if hasattr(mob, 'descriptor') \
+                        and hasattr(mob.descriptor, 'locator') \
+                        and len(mob.descriptor.locator) > 0:
+                    locator = mob.descriptor.locator[0]
+                    target_paths.append(locator["URLString"].value)
+                    #target_path = locator["URLString"].value
+                    #break
 
             # If we have target path, create an ExternalReference, otherwise
             # create an MissingReference.
-            if target_path:
+            #if target_path:
+            if len(target_paths) > 0:
+                target_path = target_paths[0]
                 if not target_path.startswith("file://"):
                     target_path = "file://" + target_path
                 target_path = target_path.replace("\\", "/")
